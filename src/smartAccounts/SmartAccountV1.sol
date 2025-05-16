@@ -109,6 +109,11 @@ contract SmartAccountV1 is Initializable, ReentrancyGuard, ISmartAccount {
         return abi.decode(result, (bool));
     }
 
+    function verifyMultisigSignature(bytes32 txHash, bytes memory signature) external view returns (bool) {
+        // TODO: Implement multisig signature verification
+        return true;
+    }
+
     /**
      * @dev Executes a payload on the target address with the given data and signature.
      * @param payload The target address to execute the payload on.

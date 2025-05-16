@@ -28,4 +28,8 @@ library Errors {
 
     // Input validation errors
     error InvalidInputArgs();
+
+    // Multisig related errors
+    error InactiveMultisig();
+    error MultisigTXAlreadySigned();
 }

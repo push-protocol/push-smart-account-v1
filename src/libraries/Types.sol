@@ -21,14 +21,27 @@ struct AccountId {
 // TODO: Confirm the final implementation of the cross-chain payload
 struct CrossChainPayload {
     // Core execution parameters
-    address target; // Target contract address to call
-    uint256 value; // Native token amount to send
-    bytes data; // Call data for the function execution
-    uint256 gasLimit; // Maximum gas to be used for this tx (caps refund amount)
-    uint256 maxFeePerGas; // Maximum fee per gas unit
-    uint256 maxPriorityFeePerGas; // Maximum priority fee per gas unit
-    uint256 nonce; // Chain ID where this should be executed
-    uint256 deadline; // Timestamp after which this payload is invalid
+    address target;                 // Target contract address to call
+    uint256 value;                  // Native token amount to send
+    bytes data;                     // Call data for the function execution
+    uint256 gasLimit;               // Maximum gas to be used for this tx (caps refund amount)
+    uint256 maxFeePerGas;           // Maximum fee per gas unit
+    uint256 maxPriorityFeePerGas;   // Maximum priority fee per gas unit
+    uint256 nonce;                  // Chain ID where this should be executed
+    uint256 deadline;               // Timestamp after which this payload is invalid
+}
+
+struct MultisigPayload {
+    address target;
+    uint256 value;
+    bytes data;
+    uint8 operation;
+    uint256 nonce;
+    uint256 TxGas;
+    uint256 baseGas;
+    uint256 gasPrice;
+    address gasToken;
+    address refundReceiver;
 }
 
 bytes32 constant DOMAIN_SEPARATOR_TYPEHASH =
@@ -36,4 +49,8 @@ bytes32 constant DOMAIN_SEPARATOR_TYPEHASH =
 
 bytes32 constant PUSH_CROSS_CHAIN_PAYLOAD_TYPEHASH = keccak256(
     "CrossChainPayload(address target,uint256 value,bytes data,uint256 gasLimit,uint256 maxFeePerGas,uint256 maxPriorityFeePerGas,uint256 nonce,uint256 deadline)"
+);
+
+bytes32 constant MULTISIG_PAYLOAD_TYPEHASH = keccak256(
+    "MultisigPayload(address target,uint256 value,bytes data,uint8 operation,uint256 nonce,uint256 TxGas,uint256 baseGas,uint256 gasPrice,address gasToken,address refundReceiver)"
 );

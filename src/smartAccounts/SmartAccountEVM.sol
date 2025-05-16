@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import {Errors} from "../libraries/Errors.sol";
+import {IMultiSig} from "../Interfaces/IMultiSig.sol";
 import {ISmartAccount} from "../Interfaces/ISmartAccount.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {Initializable} from "@openzeppelin/contracts/proxy/utils/Initializable.sol";
@@ -9,9 +10,11 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 import {
     VM_TYPE,
     AccountId,
-    CrossChainPayload,
+    CrossChainPayload,  
+    MultisigPayload,
     DOMAIN_SEPARATOR_TYPEHASH,
-    PUSH_CROSS_CHAIN_PAYLOAD_TYPEHASH
+    PUSH_CROSS_CHAIN_PAYLOAD_TYPEHASH,
+    MULTISIG_PAYLOAD_TYPEHASH
 } from "../libraries/Types.sol";
 
 /**
@@ -27,9 +30,21 @@ contract SmartAccountEVM is Initializable, ReentrancyGuard, ISmartAccount {
     uint256 public nonce;
     string public constant VERSION = "0.1.0";
 
+    // Multisig States
+    string public MULTISIG_VERSION;
+    address public MULTISIG_ADDRESS;
+    mapping(bytes32 => bool) public signedMultisigTX;
+
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
         _disableInitializers();
+    }
+
+    modifier onlyOwnerOrSmartAccount() {
+        if(msg.sender != address(bytes20(id.ownerKey)) && msg.sender != address(this)) {
+            revert Errors.InvalidOwner();
+        }
+        _;
     }
 
     /**
@@ -48,6 +63,16 @@ contract SmartAccountEVM is Initializable, ReentrancyGuard, ISmartAccount {
         return keccak256(abi.encode(DOMAIN_SEPARATOR_TYPEHASH, keccak256(bytes(VERSION)), chainId, address(this)));
     }
 
+    function domainSeparatorMultisig() private view returns (bytes32) {
+        uint256 chainId;
+        /* solhint-disable no-inline-assembly */
+        /// @solidity memory-safe-assembly
+        assembly {
+            chainId := chainid()
+        }
+        return keccak256(abi.encode(DOMAIN_SEPARATOR_TYPEHASH, keccak256(bytes(MULTISIG_VERSION)), chainId, MULTISIG_ADDRESS));
+    }
+
     /**
      * @dev Initializes the contract with the given parameters.
      * @param _accountId the AccountId struct
@@ -57,6 +82,14 @@ contract SmartAccountEVM is Initializable, ReentrancyGuard, ISmartAccount {
             revert Errors.InvalidInputArgs();
         }
         id = _accountId;
+    }
+
+    function activateMultisigSupport(string memory version, address multisigAddress) external onlyOwnerOrSmartAccount {
+        if(multisigAddress == address(0)) {
+            revert Errors.InvalidInputArgs();
+        }
+        MULTISIG_ADDRESS = multisigAddress;
+        MULTISIG_VERSION = IMultiSig(multisigAddress).VERSION();
     }
 
     /**
@@ -87,6 +120,10 @@ contract SmartAccountEVM is Initializable, ReentrancyGuard, ISmartAccount {
     function _verifySignatureEVM(bytes32 messageHash, bytes memory signature) internal view returns (bool) {
         address recoveredSigner = messageHash.recover(signature);
         return recoveredSigner == address(bytes20(id.ownerKey));
+    }
+
+    function verifyMultisigSignature(bytes32 txHash, bytes memory signature) public view returns (bool) {
+        return _verifySignatureEVM(txHash, signature);
     }
 
     /**
@@ -121,6 +158,24 @@ contract SmartAccountEVM is Initializable, ReentrancyGuard, ISmartAccount {
         emit PayloadExecuted(id.ownerKey, payload.target, payload.data);
     }
 
+    function executeMultiSigPayload(MultisigPayload calldata payload, bytes calldata signature) external nonReentrant {
+        if(MULTISIG_ADDRESS == address(0)) {
+            revert Errors.InactiveMultisig();
+        }
+        bytes32 txHash = getMultisigTXHash(payload);
+
+        if(signedMultisigTX[txHash]) {
+            revert Errors.MultisigTXAlreadySigned();
+        }
+
+        if (!verifyMultisigSignature(txHash, signature)) {
+            revert Errors.InvalidEVMSignature();
+        }
+
+        signedMultisigTX[txHash] = true;
+        emit MultisigSignVerified(id.ownerKey, txHash);
+    }
+
     function getTransactionHash(CrossChainPayload calldata payload) public view returns (bytes32) {
         if (payload.deadline > 0) {
             if (block.timestamp > payload.deadline) {
@@ -147,6 +202,29 @@ contract SmartAccountEVM is Initializable, ReentrancyGuard, ISmartAccount {
 
         return keccak256(abi.encodePacked("\x19\x01", _domainSeparator, structHash));
     }
+
+    function getMultisigTXHash(MultisigPayload calldata payload) private view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(
+                MULTISIG_PAYLOAD_TYPEHASH,
+                payload.target,
+                payload.value,
+                keccak256(payload.data),
+                payload.operation,
+                payload.nonce,
+                payload.TxGas,
+                payload.baseGas,
+                payload.gasPrice,
+                payload.gasToken,
+                payload.refundReceiver
+            )
+        );
+
+        bytes32 _domainSeparator = domainSeparatorMultisig();
+
+        return keccak256(abi.encodePacked("\x19\x01", _domainSeparator, structHash));
+    }       
+
 
     // @dev Fallback function to receive ether.
     receive() external payable {}
